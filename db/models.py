@@ -1,8 +1,3 @@
-"""
-db/models.py
-SQLite persistence layer for threat telemetry, blocked entities, and vulnerability audits.
-"""
-
 import sqlite3
 from pathlib import Path
 
@@ -16,7 +11,7 @@ def get_db_connection() -> sqlite3.Connection:
 
 
 def initialize_database() -> None:
-    """Initializes normalized tables for incidents, audit scans, and active rule toggles."""
+    """Initializes normalized tables for incidents, audit scans, blacklist, and active rules."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -44,7 +39,7 @@ def initialize_database() -> None:
         )
     """)
 
-    # Table 3: WAF Active Defense Toggle configuration
+    # Table 3: Active Defense Configuration & Virtual Patching flags
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS waf_config (
             key TEXT PRIMARY KEY,
@@ -52,12 +47,19 @@ def initialize_database() -> None:
         )
     """)
 
-    # Default toggles: 1 = Active / Block, 0 = Monitor only
+    # Table 4: Permanent IP Blacklist
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ip_blacklist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT UNIQUE NOT NULL,
+            reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     default_configs = [
-        ("block_sqli", 1),
-        ("block_xss", 1),
-        ("block_traversal", 1),
-        ("block_scanners", 1),
+        ("virtual_patch_headers", 0),  # 1 = Injects hardening headers on all responses
+        ("strict_mode", 1),
     ]
     cursor.executemany(
         "INSERT OR IGNORE INTO waf_config (key, value) VALUES (?, ?)",
