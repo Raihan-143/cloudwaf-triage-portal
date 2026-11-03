@@ -76,3 +76,64 @@ async def run_vulnerability_audit(payload: TargetScanRequest):
     """Triggers asynchronous non-intrusive target security scan."""
     result = await VulnerabilityScanner.audit_target(payload.target_url)
     return result
+
+# main.py এর নিচে এই নতুন রাউটগুলো অ্যাড করো:
+
+class BlacklistRequest(BaseModel):
+    ip_address: str
+    reason: str = "Admin Manual Quarantine"
+
+
+@app.post("/api/v1/defense/blacklist")
+async def add_ip_to_blacklist(payload: BlacklistRequest):
+    """Blocks an IP permanently from making requests."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT OR IGNORE INTO ip_blacklist (ip_address, reason) VALUES (?, ?)",
+            (payload.ip_address, payload.reason)
+        )
+        conn.commit()
+        success = True
+    except Exception as e:
+        success = False
+    finally:
+        conn.close()
+
+    return {"status": "SUCCESS" if success else "FAILED", "ip": payload.ip_address}
+
+
+@app.post("/api/v1/defense/virtual-patch/toggle")
+async def toggle_virtual_patching():
+    """Toggles runtime header hardening virtual patch."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM waf_config WHERE key = 'virtual_patch_headers'")
+    row = cursor.fetchone()
+    current_state = row["value"] if row else 0
+    new_state = 0 if current_state == 1 else 1
+
+    cursor.execute("UPDATE waf_config SET value = ? WHERE key = 'virtual_patch_headers'", (new_state,))
+    conn.commit()
+    conn.close()
+
+    return {"virtual_patch_active": bool(new_state)}
+
+
+@app.get("/api/v1/defense/status")
+async def get_defense_status():
+    """Returns active defense controls state."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT ip_address, created_at FROM ip_blacklist")
+    banned_ips = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute("SELECT value FROM waf_config WHERE key = 'virtual_patch_headers'")
+    patch = cursor.fetchone()
+    conn.close()
+
+    return {
+        "virtual_patch_active": bool(patch["value"]) if patch else False,
+        "banned_ips": banned_ips
+    }
