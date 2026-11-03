@@ -1,8 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from core.waf.middleware import CloudWAFMiddleware
-from db.models import initialize_database
+from core.auditor.scanner import VulnerabilityScanner
+from db.models import initialize_database, get_db_connection
 from utils.logger import PortalLogger
 
 app = FastAPI(
@@ -11,34 +14,61 @@ app = FastAPI(
     docs_url="/api/docs"
 )
 
-# 1. Initialize SQLite Database Tables
+# Initialize Database
 initialize_database()
-PortalLogger.success("Database layer initialized and tables verified.")
 
-# 2. Register WAF Inspection Middleware
+# Register WAF Middleware
 app.add_middleware(CloudWAFMiddleware)
-PortalLogger.info("CloudWAF Layer-7 active defense middleware armed.")
 
-# 3. Mount Static Assets & Templates
+# Mount Assets & Templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
-# System Health Check endpoint
-@app.get("/api/v1/health")
-async def health_check():
+class TargetScanRequest(BaseModel):
+    target_url: str
+
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_dashboard(request: Request):
+    """Serves the interactive 3D Cyber Command Dashboard."""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
+@app.get("/api/v1/metrics")
+async def get_security_metrics():
+    """Returns aggregated threat metrics and recent incidents for the HUD."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) AS total_blocked FROM security_events WHERE status = 'BLOCKED'")
+    total_blocked = cursor.fetchone()["total_blocked"]
+
+    cursor.execute("""
+        SELECT threat_type, COUNT(*) as count 
+        FROM security_events 
+        GROUP BY threat_type
+    """)
+    threat_breakdown = {row["threat_type"]: row["count"] for row in cursor.fetchall()}
+
+    cursor.execute("""
+        SELECT timestamp, client_ip, threat_type, payload_sample, endpoint 
+        FROM security_events 
+        ORDER BY id DESC LIMIT 8
+    """)
+    recent_events = [dict(row) for row in cursor.fetchall()]
+
+    conn.close()
+
     return {
-        "status": "HEALTHY",
-        "waf_engine": "ACTIVE",
-        "auditor_service": "READY"
+        "total_blocked": total_blocked,
+        "threat_breakdown": threat_breakdown,
+        "recent_events": recent_events
     }
 
 
-# Simulated application test endpoint (Protected by WAF)
-@app.get("/api/v1/user/search")
-async def simulated_user_search(q: str = ""):
-    return {
-        "message": "Benign search executed successfully.",
-        "query": q,
-        "results": []
-    }
+@app.post("/api/v1/audit")
+async def run_vulnerability_audit(payload: TargetScanRequest):
+    """Triggers asynchronous non-intrusive target security scan."""
+    result = await VulnerabilityScanner.audit_target(payload.target_url)
+    return result
