@@ -1,3 +1,8 @@
+"""
+core/waf/middleware.py
+Starlette/FastAPI middleware for real-time payload inspection, blocking, and audit logging.
+"""
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -8,25 +13,22 @@ from utils.logger import PortalLogger
 
 class CloudWAFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Static files এবং Dashboard UI inspection bypass (performance optimization)
-        path = request.url.path
-        if path.startswith("/static") or path in ["/", "/favicon.ico"]:
+        path = request.url.path or ""
+
+        # UI Dashboard, Static Files, and Internal APIs bypass direct blocking
+        if path.startswith("/static") or path in ["/", "/favicon.ico"] or path.startswith("/api/v1/metrics") or path.startswith("/api/v1/audit"):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "127.0.0.1"
-        query_string = request.url.query
+        query_string = request.url.query or ""
         user_agent = request.headers.get("user-agent", "")
-
-        # Read body for POST/PUT inspection without consuming the stream permanently
-        body_bytes = await request.body()
-        body_text = body_bytes.decode("utf-8", errors="ignore")
 
         # Inspect request via WAF engine
         is_threat, threat_type, offending_payload = WAFEngine.inspect_request(
             path=path,
             query_params=query_string,
             user_agent=user_agent,
-            body=body_text
+            body=""
         )
 
         if is_threat:
@@ -47,7 +49,6 @@ class CloudWAFMiddleware(BaseHTTPMiddleware):
             except Exception as e:
                 PortalLogger.warning(f"Database logging failure: {e}")
 
-            # Return immediate 403 Forbidden Response
             return JSONResponse(
                 status_code=403,
                 content={
@@ -59,6 +60,4 @@ class CloudWAFMiddleware(BaseHTTPMiddleware):
                 }
             )
 
-        # Allow benign request to proceed
-        response = await call_next(request)
-        return response
+        return await call_next(request)

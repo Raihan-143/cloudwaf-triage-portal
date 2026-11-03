@@ -32,7 +32,11 @@ class TargetScanRequest(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard(request: Request):
     """Serves the interactive 3D Cyber Command Dashboard."""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={}
+    )
 
 
 @app.get("/api/v1/metrics")
