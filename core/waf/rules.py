@@ -6,7 +6,7 @@ WAF_SIGNATURES: Dict[str, Pattern] = {
         r"(union\s+all\s+select|union\s+select|select\s+.*\s+from|"
         r"information_schema|waitfor\s+delay|sleep\(\d+\)|"
         r"benchmark\(\d+,|or\s+['\"]?1['\"]?\s*=\s*['\"]?1|"
-        r"(['\"])\s*or\s+\1|--\s*$|/\*.*?\*/|;\s*drop\s+table)",
+        r"['\"]\s*or\s*['\"]|--\s*$|/\*.*?\*/|;\s*drop\s+table)",
         re.IGNORECASE,
     ),
     "Cross-Site Scripting (XSS)": re.compile(
